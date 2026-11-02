@@ -1,0 +1,32 @@
+name: Sincronizar Tesorería
+
+on:
+  schedule:
+    # Todos los días a las 7:00 a. m. hora RD (11:00 UTC)
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+    inputs:
+      anio:
+        description: "Año a sincronizar (vacío = año en curso)"
+        required: false
+
+concurrency:
+  group: sync-tesoreria
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Sincronizar
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run sync -- ${{ github.event.inputs.anio }}

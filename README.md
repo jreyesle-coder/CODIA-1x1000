@@ -1,36 +1,35 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 1x1000 CODIA · Tesorería
 
-## Getting Started
+Tablero que calcula el 1x1000 teórico del CODIA (Decreto 319-98) sobre los pagos de **OBRAS** que publica la Tesorería Nacional en sus archivos mensuales «Pagos Detallados Suplidores y Contratistas». Se actualiza solo: cada día revisa el portal y, si hay un mes nuevo o corregido, lo descarga y recalcula.
 
-First, run the development server:
+## Cómo funciona
+
+| Pieza | Qué hace |
+|---|---|
+| `src/lib/tesoreria.ts` | Encuentra los archivos de cada mes en tesoreria.gob.do y los descarga (el portal exige enviar su formulario con token). |
+| `src/lib/lector.ts` | Lee el Excel: hojas RD$, USD y EUR; solo filas con «Concepto general» = OBRAS; marca cesiones a Banreservas / Banco Agrícola. |
+| `src/lib/sincronizar.ts` + `worker/sync.ts` | Descarga, compara con lo guardado (huella SHA-256) y reemplaza solo los meses que cambiaron. |
+| `src/lib/calculo.ts` | Resumen por mes y trimestre, 1x1000 bruto y depurado, por institución. |
+| `.github/workflows/sync.yml` | Corre la sincronización todos los días a las 7:00 a. m. (hora RD). También se puede lanzar a mano desde GitHub → Actions. |
+| `src/app` | Tablero (`/`), libramientos con filtros (`/detalle`), obras en USD/EUR (`/excluidos`), entrada con contraseña (`/login`). |
+
+## Probar en la PC
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run sync      # descarga el año en curso a datos/almacen.json
+npm run dev       # abre http://localhost:3000
+npm test
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Puesta en línea (una sola vez)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. **Supabase**: crear un proyecto, abrir SQL Editor y correr `supabase/migraciones/001_esquema.sql`.
+2. **GitHub**: subir este repositorio. En Settings → Secrets and variables → Actions, crear los secretos `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`. Luego en Actions → «Sincronizar Tesorería» → Run workflow, para la primera carga.
+3. **Vercel**: importar el repositorio y poner las variables `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y `APP_CLAVE`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Límites del cálculo
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Solo pagos por la Cuenta Única del Tesoro: no incluye descentralizadas con tesorería propia ni ayuntamientos. La cifra es un piso.
+- La retención que publica la Tesorería viene agregada; no se puede saber si incluye el 1x1000.
+- Las obras en USD y EUR se listan aparte y no entran en el cálculo.
