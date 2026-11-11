@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { cargar, rd, num } from "@/lib/datos";
 import { MESES_LARGOS, TASA } from "@/lib/calculo";
-import { Seccion, SinDatos } from "@/components/ui";
+import { Seccion, SinDatos, FaltaConfiguracion } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 const POR_PAGINA = 100;
@@ -12,6 +12,7 @@ export default async function Detalle({ searchParams }: PageProps<"/detalle">) {
   const sp = await searchParams;
   const p = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : "");
   const d = await cargar(p("anio"));
+  if (d.faltan) return <FaltaConfiguracion faltan={d.faltan} />;
   if (!d.rd.length) return <SinDatos ultimaSync={d.ultimaSync} />;
 
   const mes = Number(p("mes")) || 0, inst = p("inst"), q = p("q").trim(), cesion = p("cesion");

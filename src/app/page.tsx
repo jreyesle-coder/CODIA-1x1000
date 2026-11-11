@@ -2,13 +2,15 @@ import Link from "next/link";
 import { cargar, rd, num, pct, fechaHora } from "@/lib/datos";
 import { MESES_CORTOS, MESES_LARGOS, TASA, nombreCorto, porInstitucion, resumen, ultimosMeses } from "@/lib/calculo";
 import { GraficoBarras } from "@/components/grafico-barras";
-import { Tarjeta, Seccion, EstadoSync, SinDatos } from "@/components/ui";
+import { Tarjeta, Seccion, EstadoSync, SinDatos, BotonActualizar, AvisoSync, FaltaConfiguracion } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // «Actualizar ahora» descarga de la Tesorería y puede tardar
 
 export default async function Tablero({ searchParams }: PageProps<"/">) {
-  const { anio: q } = await searchParams;
+  const { anio: q, sync } = await searchParams;
   const d = await cargar(typeof q === "string" ? q : undefined);
+  if (d.faltan) return <FaltaConfiguracion faltan={d.faltan} />;
   if (!d.rd.length) return <SinDatos ultimaSync={d.ultimaSync} />;
 
   const filas = resumen(d.rd);
@@ -44,8 +46,10 @@ export default async function Tablero({ searchParams }: PageProps<"/">) {
             </div>
           )}
           <EstadoSync s={d.ultimaSync} />
+          <BotonActualizar />
         </div>
       </div>
+      {sync === "1" && <AvisoSync s={d.ultimaSync} />}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Tarjeta titulo={`1x1000 ${rango(numsMes)}`} valor={rd(total.x1000)} nota={`Sobre ${rd(total.bruto)} de monto bruto`} />

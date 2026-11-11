@@ -1,11 +1,23 @@
 /**
- * Dónde viven los datos. Con SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY usa Supabase;
- * sin ellas, un archivo local (datos/almacen.json) para probar en la PC.
+ * Dónde viven los datos.
+ * - Con SUPABASE_URL + SUPABASE_ANON_KEY + CRON_SECRET: Supabase. Lee con la clave pública (las tablas
+ *   son de lectura abierta: datos públicos de la Tesorería) y escribe solo a través de funciones
+ *   que exigen CRON_SECRET.
+ * - Sin esas variables, en la PC: un archivo local (datos/almacen.json) para probar.
+ *   En un servidor (Vercel) la falta de variables es un error y se muestra como tal.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { PagoObra } from "./lector";
+
+export const VARIABLES = ["SUPABASE_URL", "SUPABASE_ANON_KEY", "CRON_SECRET"] as const;
+
+export class ErrorConfiguracion extends Error {
+  constructor(public faltan: string[]) {
+    super(`Faltan variables de entorno: ${faltan.join(", ")}`);
+  }
+}
 
 export interface ArchivoGuardado {
   anio: number;
@@ -35,7 +47,7 @@ export interface Almacen {
 }
 
 // ---------- Supabase ----------
-function supabase(url: string, llave: string): Almacen {
+function supabase(url: string, llave: string, secreto: string): Almacen {
   const sb: SupabaseClient = createClient(url, llave, { auth: { persistSession: false } });
   const ok = <T>(r: { data: T | null; error: { message: string } | null }) => {
     if (r.error) throw new Error(r.error.message);
@@ -47,10 +59,7 @@ function supabase(url: string, llave: string): Almacen {
       return ok(await sb.from("archivos_tn").select("*").order("anio").order("mes"));
     },
     async reemplazarMes(a, filas) {
-      ok(await sb.from("pagos_obras").delete().eq("anio", a.anio).eq("mes", a.mes));
-      for (let i = 0; i < filas.length; i += 1000) ok(await sb.from("pagos_obras").insert(filas.slice(i, i + 1000)));
-      // El registro del archivo va al final: si algo falla antes, la próxima corrida lo reintenta.
-      ok(await sb.from("archivos_tn").upsert(a));
+      ok(await sb.rpc("sync_reemplazar_mes", { p_secreto: secreto, p_archivo: a, p_filas: filas }));
     },
     async pagos(anio) {
       const out: PagoObra[] = [];
@@ -65,7 +74,7 @@ function supabase(url: string, llave: string): Almacen {
       }
     },
     async registrarSync(s) {
-      ok(await sb.from("sincronizaciones").insert(s));
+      ok(await sb.rpc("sync_registrar", { p_secreto: secreto, p_inicio: s.inicio, p_fin: s.fin, p_estado: s.estado, p_detalle: s.detalle }));
     },
     async ultimaSync() {
       const d = ok<Sincronizacion[]>(await sb.from("sincronizaciones").select("inicio,fin,estado,detalle").order("inicio", { ascending: false }).limit(1));
@@ -105,7 +114,14 @@ function local(): Almacen {
   };
 }
 
+export function variablesFaltantes(): string[] {
+  return VARIABLES.filter((v) => !process.env[v]);
+}
+
 export function almacen(): Almacen {
-  const url = process.env.SUPABASE_URL, llave = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  return url && llave ? supabase(url, llave) : local();
+  const faltan = variablesFaltantes();
+  if (faltan.length === 0) return supabase(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!, process.env.CRON_SECRET!);
+  // En un servidor nunca se cae en silencio al archivo local: se exige la configuración.
+  if (process.env.VERCEL || process.env.GITHUB_ACTIONS || process.env.NODE_ENV === "production") throw new ErrorConfiguracion(faltan);
+  return local();
 }

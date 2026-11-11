@@ -4,11 +4,23 @@ import { listarArchivos, descargar, MESES, type ArchivoTN } from "./tesoreria";
 import { leerArchivo } from "./lector";
 import type { Almacen } from "./almacen";
 
-export interface ResultadoSync { nuevos: string[]; sinCambios: number; errores: string[] }
+export interface ResultadoSync { nuevos: string[]; sinCambios: number; errores: string[]; pendientes: string[] }
+export interface OpcionesSync {
+  /** Tiempo máximo de trabajo; lo que no alcance queda en `pendientes` para la próxima corrida. */
+  limiteMs?: number;
+  log?: (m: string) => void;
+}
 
-export async function sincronizar(alm: Almacen, anios: number[], log = console.log): Promise<ResultadoSync> {
+/** Año en curso; en enero y febrero también el anterior, por si la Tesorería aún publica diciembre. */
+export function aniosPorDefecto(hoy = new Date()): number[] {
+  return hoy.getMonth() < 2 ? [hoy.getFullYear() - 1, hoy.getFullYear()] : [hoy.getFullYear()];
+}
+
+export async function sincronizar(alm: Almacen, anios: number[], opciones: OpcionesSync = {}): Promise<ResultadoSync> {
+  const { limiteMs = Infinity, log = console.log } = opciones;
+  const t0 = Date.now();
   const inicio = new Date().toISOString();
-  const res: ResultadoSync = { nuevos: [], sinCambios: 0, errores: [] };
+  const res: ResultadoSync = { nuevos: [], sinCambios: 0, errores: [], pendientes: [] };
   try {
     const guardados = new Map((await alm.archivos()).map((a) => [`${a.anio}-${a.mes}`, a]));
     for (const anio of anios) {
@@ -17,6 +29,7 @@ export async function sincronizar(alm: Almacen, anios: number[], log = console.l
       log(`${anio}: ${porMes.size} meses publicados`);
       for (const [mes, candidatos] of porMes) {
         const etiqueta = `${MESES[mes - 1]} ${anio}`;
+        if (Date.now() - t0 > limiteMs) { res.pendientes.push(etiqueta); continue; }
         let hecho = false;
         for (const c of candidatos) {
           let buf: Buffer;
@@ -31,7 +44,7 @@ export async function sincronizar(alm: Almacen, anios: number[], log = console.l
             filas_obras: filas.length, descargado_en: new Date().toISOString(),
           }, filas);
           const bruto = rd.reduce((s, f) => s + f.monto_bruto, 0);
-          log(`  ✓ ${etiqueta}: ${rd.length} pagos OBRAS RD$, bruto RD$${bruto.toLocaleString("es-DO", { maximumFractionDigits: 0 })}`);
+          log(`  ✓ ${etiqueta}: ${rd.length} pagos OBRAS RD$, bruto RD$${bruto.toLocaleString("en-US", { maximumFractionDigits: 0 })}`);
           res.nuevos.push(etiqueta);
           hecho = true;
           break;
@@ -46,8 +59,13 @@ export async function sincronizar(alm: Almacen, anios: number[], log = console.l
   const detalle = [
     res.nuevos.length ? `Actualizados: ${res.nuevos.join(", ")}` : "",
     res.sinCambios ? `${res.sinCambios} meses sin cambios` : "",
+    res.pendientes.length ? `Pendientes para la próxima corrida: ${res.pendientes.join(", ")}` : "",
     ...res.errores,
   ].filter(Boolean).join(" · ");
-  await alm.registrarSync({ inicio, fin: new Date().toISOString(), estado, detalle: detalle || null });
+  try {
+    await alm.registrarSync({ inicio, fin: new Date().toISOString(), estado, detalle: detalle || null });
+  } catch (e) {
+    res.errores.push(`No se pudo registrar la corrida: ${(e as Error).message}`);
+  }
   return res;
 }

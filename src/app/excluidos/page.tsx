@@ -1,6 +1,6 @@
 import { cargar, num } from "@/lib/datos";
 import { MESES_LARGOS } from "@/lib/calculo";
-import { Seccion, Tarjeta } from "@/components/ui";
+import { Seccion, Tarjeta, FaltaConfiguracion } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +9,7 @@ const moneda = (n: number, m: string) => `${m === "USD" ? "US$" : "€"}${n.toLo
 export default async function Excluidos({ searchParams }: PageProps<"/excluidos">) {
   const { anio } = await searchParams;
   const d = await cargar(typeof anio === "string" ? anio : undefined);
+  if (d.faltan) return <FaltaConfiguracion faltan={d.faltan} />;
   const filas = [...d.divisas].sort((a, b) => a.mes - b.mes || (a.fecha ?? "").localeCompare(b.fecha ?? ""));
   const tot = (m: string) => filas.filter((f) => f.moneda === m);
 
