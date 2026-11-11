@@ -1,13 +1,18 @@
 import { cookies } from "next/headers";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { COOKIE, huella } from "@/lib/sesion";
+import { COOKIE, DIAS_SESION, emitirCookie } from "@/lib/sesion";
 
 async function entrar(datos: FormData) {
   "use server";
   const clave = process.env.APP_CLAVE;
   if (!clave) redirect("/");
-  if (String(datos.get("clave")) !== clave) redirect("/login?error=1");
-  (await cookies()).set(COOKIE, await huella(clave), { httpOnly: true, secure: true, sameSite: "lax", maxAge: 60 * 60 * 24 * 30, path: "/" });
+  if (String(datos.get("clave")) !== clave) {
+    await new Promise((r) => setTimeout(r, 1500)); // frena los intentos automatizados
+    redirect("/login?error=1");
+  }
+  (await cookies()).set(COOKIE, await emitirCookie(), { httpOnly: true, secure: true, sameSite: "lax", maxAge: DIAS_SESION * 86_400, path: "/" });
+  revalidatePath("/", "layout"); // descarta lo que el navegador haya precargado sin sesión
   redirect("/");
 }
 

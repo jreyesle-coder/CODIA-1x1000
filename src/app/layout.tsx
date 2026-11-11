@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import Link from "next/link";
 import Image from "next/image";
+import { Nav } from "@/components/nav";
 import "./globals.css";
 
 const geist = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -10,12 +11,6 @@ export const metadata: Metadata = {
   title: "1x1000 CODIA",
   description: "1x1000 teórico del CODIA sobre los pagos de obras de la Tesorería Nacional (Decreto 319-98)",
 };
-
-const NAV = [
-  { href: "/", texto: "Tablero" },
-  { href: "/detalle", texto: "Libramientos" },
-  { href: "/excluidos", texto: "USD y EUR" },
-];
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
@@ -27,13 +22,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               <Image src="/logo-codia.png" alt="CODIA" width={182} height={40} priority />
               <span className="hidden border-l border-borde pl-3 text-sm font-semibold text-codia sm:block">1x1000 · Tesorería</span>
             </Link>
-            <nav className="flex gap-1 text-sm">
-              {NAV.map((n) => (
-                <Link key={n.href} href={n.href} className="rounded-md px-3 py-1.5 text-tinta-2 hover:bg-fondo hover:text-tinta">
-                  {n.texto}
-                </Link>
-              ))}
-            </nav>
+            <Nav />
           </div>
         </header>
         <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">{children}</main>

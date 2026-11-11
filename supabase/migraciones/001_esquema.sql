@@ -40,7 +40,8 @@ create table if not exists sincronizaciones (
   detalle     text
 );
 
--- Solo el servidor (service_role) lee y escribe; nadie entra con la llave pública.
+-- RLS activo. Las reglas de acceso (lectura pública con la clave publishable y escritura
+-- solo por RPC con secreto) se definen en 002_acceso.sql y 003_candado_mes.sql.
 alter table archivos_tn      enable row level security;
 alter table pagos_obras      enable row level security;
 alter table sincronizaciones enable row level security;

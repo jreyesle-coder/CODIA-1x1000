@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   }
   try {
     const r = await sincronizar(almacen(), aniosPorDefecto(), { limiteMs: 50_000 });
-    return NextResponse.json(r, { status: r.errores.length ? 500 : 200 });
+    return NextResponse.json(r, { status: r.estado === "error" ? 500 : 200 });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

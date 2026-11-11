@@ -8,6 +8,8 @@ export interface Datos {
   anios: number[];
   archivos: ArchivoGuardado[];
   ultimaSync: Sincronizacion | null;
+  /** Horas desde la última revisión (0 si no hay ninguna). */
+  horasSinRevisar: number;
   rd: PagoObra[];
   divisas: PagoObra[];
 }
@@ -34,6 +36,7 @@ export async function cargar(anioPedido?: string): Promise<Datos | SinConfigurar
     anios,
     archivos: archivos.filter((a) => a.anio === anio),
     ultimaSync,
+    horasSinRevisar: ultimaSync ? (Date.now() - new Date(ultimaSync.fin ?? ultimaSync.inicio).getTime()) / 36e5 : 0,
     rd: pagos.filter((p) => p.moneda === "RD"),
     divisas: pagos.filter((p) => p.moneda !== "RD"),
   };

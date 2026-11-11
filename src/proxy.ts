@@ -1,16 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { COOKIE, huella } from "@/lib/sesion";
+import { COOKIE, cookieValida } from "@/lib/sesion";
 
-/** Pide la contraseña a quien no tenga la cookie de sesión. /api/sync se protege solo, con CRON_SECRET. */
+/** Pide la contraseña a quien no tenga una cookie de sesión válida. /api/sync se protege solo, con CRON_SECRET. */
 export async function proxy(request: NextRequest) {
   const clave = process.env.APP_CLAVE;
   const ruta = request.nextUrl.pathname;
-  if (!clave || ruta === "/login" || ruta.startsWith("/api/sync")) return NextResponse.next();
-  if (request.cookies.get(COOKIE)?.value === (await huella(clave))) return NextResponse.next();
+  if (!clave || ruta === "/login" || ruta === "/api/sync") return NextResponse.next();
+  if (await cookieValida(request.cookies.get(COOKIE)?.value)) return NextResponse.next();
   const destino = request.nextUrl.clone();
   destino.pathname = "/login";
   destino.search = "";
-  return NextResponse.redirect(destino);
+  const res = NextResponse.redirect(destino);
+  res.headers.set("Cache-Control", "private, no-store");
+  return res;
 }
 
 export const config = {

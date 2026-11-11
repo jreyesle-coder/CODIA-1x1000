@@ -15,9 +15,8 @@ async function main() {
   console.log(`Almacén: ${alm.tipo} · años: ${anios.join(", ")}`);
   const t0 = Date.now();
   const r = await sincronizar(alm, anios);
-  console.log(`Listo en ${Math.round((Date.now() - t0) / 1000)} s: ${r.nuevos.length} meses actualizados, ${r.sinCambios} sin cambios, ${r.errores.length} errores`);
-  for (const e of r.errores) console.error("  ✗ " + e);
-  if (r.errores.length) process.exit(1);
+  console.log(`Listo en ${Math.round((Date.now() - t0) / 1000)} s · estado: ${r.estado} · ${r.detalle || "sin novedades"}`);
+  if (r.estado === "error") process.exit(1);
 }
 
 main();

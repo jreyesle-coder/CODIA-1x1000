@@ -12,6 +12,7 @@
   --serie-2: #eb6834;
   --serie-3: #1baf7a;
   --bueno: #1f7a3d;
+  --aviso: #9a6700;
   --malo: #b42318;
   color-scheme: light;
 }
@@ -28,6 +29,7 @@
   --color-serie-2: var(--serie-2);
   --color-serie-3: var(--serie-3);
   --color-bueno: var(--bueno);
+  --color-aviso: var(--aviso);
   --color-malo: var(--malo);
   --font-sans: var(--font-geist-sans);
 }

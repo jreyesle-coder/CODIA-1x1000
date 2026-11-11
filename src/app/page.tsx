@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60; // «Actualizar ahora» descarga de la Tesorería y puede tardar
 
 export default async function Tablero({ searchParams }: PageProps<"/">) {
-  const { anio: q, sync } = await searchParams;
+  const { anio: q, sync, estado, detalle } = await searchParams;
   const d = await cargar(typeof q === "string" ? q : undefined);
   if (d.faltan) return <FaltaConfiguracion faltan={d.faltan} />;
   if (!d.rd.length) return <SinDatos ultimaSync={d.ultimaSync} />;
@@ -45,11 +45,11 @@ export default async function Tablero({ searchParams }: PageProps<"/">) {
               ))}
             </div>
           )}
-          <EstadoSync s={d.ultimaSync} />
+          <EstadoSync s={d.ultimaSync} horas={d.horasSinRevisar} />
           <BotonActualizar />
         </div>
       </div>
-      {sync === "1" && <AvisoSync s={d.ultimaSync} />}
+      {sync === "1" && <AvisoSync estado={String(estado ?? "")} detalle={String(detalle ?? "")} />}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Tarjeta titulo={`1x1000 ${rango(numsMes)}`} valor={rd(total.x1000)} nota={`Sobre ${rd(total.bruto)} de monto bruto`} />
@@ -140,7 +140,7 @@ export default async function Tablero({ searchParams }: PageProps<"/">) {
 
       <Seccion titulo="Cómo se calcula">
         <ul className="list-disc space-y-1 pl-5 text-sm text-tinta-2">
-          <li>Cada día se revisa el portal de la Tesorería. Cuando publica un mes nuevo o corrige uno, se descarga y se recalcula solo.</li>
+          <li>Cada día, entre 7:00 y 8:00 a. m., se revisa el portal de la Tesorería. Cuando publica un mes nuevo o corrige uno, se descarga y se recalcula solo. El botón «Actualizar ahora» hace lo mismo en el momento.</li>
           <li>Se toman solo los pagos en RD$ cuyo «Concepto general» es OBRAS. 1x1000 = monto bruto × {TASA}.</li>
           <li>Los pagos de obra en USD y EUR no entran en el cálculo; están en <Link href="/excluidos" className="text-codia underline">USD y EUR</Link>.</li>
           <li>La Tesorería solo publica los pagos por la Cuenta Única del Tesoro. No incluye descentralizadas con tesorería propia ni ayuntamientos: la cifra es un piso.</li>

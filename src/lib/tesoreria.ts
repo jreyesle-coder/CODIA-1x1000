@@ -7,6 +7,8 @@
 const BASE = "https://www.tesoreria.gob.do";
 const RAIZ = `${BASE}/index.php/component/phocadownload/category/24.html`;
 const UA = "Mozilla/5.0 (CODIA 1x1000; consulta de transparencia)";
+const ESPERA_PAGINA_MS = 15_000;
+const ESPERA_DESCARGA_MS = 45_000;
 
 export const MESES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -21,13 +23,34 @@ export interface ArchivoTN {
   url: string; // página del archivo
 }
 
+/** Archivos encontrados y lo que no se pudo interpretar (para que una corrida no lo calle). */
+export interface ListadoTN {
+  archivos: ArchivoTN[];
+  avisos: string[];
+}
+
 function sinAcentos(s: string) {
-  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+
+/** «Octubre», «Octubre 2026» u «Octubre (corregido)» → 10; 0 si no es un mes. */
+function mesDe(texto: string): number {
+  const t = sinAcentos(texto);
+  return MESES.findIndex((m) => t === m || t.startsWith(m + " ") || t.startsWith(m + "(") || t.startsWith(m + "-")) + 1;
+}
+
+async function pedir(url: string, init: RequestInit, esperaMs: number): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, headers: { "User-Agent": UA, ...(init.headers ?? {}) }, signal: AbortSignal.timeout(esperaMs) });
+  } catch (e) {
+    if ((e as Error).name === "TimeoutError") throw new Error(`la Tesorería no respondió en ${esperaMs / 1000} s: ${url}`);
+    throw new Error(`no se pudo conectar con la Tesorería (${(e as Error).message}): ${url}`);
+  }
 }
 
 async function html(url: string): Promise<string> {
-  const r = await fetch(url, { headers: { "User-Agent": UA } });
-  if (!r.ok) throw new Error(`Tesorería respondió ${r.status} en ${url}`);
+  const r = await pedir(url, {}, ESPERA_PAGINA_MS);
+  if (!r.ok) throw new Error(`la Tesorería respondió ${r.status} en ${url}`);
   return r.text();
 }
 
@@ -47,47 +70,54 @@ async function categoriaDelAnio(anio: number): Promise<string | null> {
   return e?.href ?? null;
 }
 
-/** Lista los archivos de detalle publicados para un año (uno por mes). */
-export async function listarArchivos(anio: number): Promise<ArchivoTN[]> {
+/** Lista los archivos de detalle publicados para un año (normalmente uno por mes). */
+export async function listarArchivos(anio: number): Promise<ListadoTN> {
+  const avisos: string[] = [];
   const cat = await categoriaDelAnio(anio);
-  if (!cat) return [];
-  const meses = enlaces(await html(cat))
-    .map((l) => ({ ...l, mes: MESES.indexOf(sinAcentos(l.texto)) + 1 }))
-    .filter((l) => l.mes > 0 && /\/category\//.test(l.href));
-  const vistos = new Set<number>();
-  const out: ArchivoTN[] = [];
-  for (const m of meses) {
-    if (vistos.has(m.mes)) continue;
-    vistos.add(m.mes);
-    const candidatos = enlaces(await html(m.href))
-      .filter((l) => /\/file\/(\d+)-pagos-detallados/.test(l.href))
+  if (!cat) return { archivos: [], avisos: [`el portal no tiene la categoría «Período ${anio}»`] };
+  // Subcategorías del año (un mes cada una). Se ignoran el enlace a la raíz y el del propio año.
+  const entradas = enlaces(await html(cat)).filter((l) =>
+    /\/category\/\d+/.test(l.href) && l.texto && !/\/category\/24(-|\.html)/.test(l.href) && l.href !== cat && !/^periodo/.test(sinAcentos(l.texto)));
+  const porMes = new Map<number, string>();
+  for (const e of entradas) {
+    const mes = mesDe(e.texto);
+    if (!mes) { if (!avisos.includes(`entrada no reconocida en «Período ${anio}»: ${e.texto}`)) avisos.push(`entrada no reconocida en «Período ${anio}»: ${e.texto}`); continue; }
+    if (!porMes.has(mes)) porMes.set(mes, e.href);
+  }
+  const archivos: ArchivoTN[] = [];
+  for (const [mes, href] of porMes) {
+    const candidatos = enlaces(await html(href))
+      .filter((l) => /\/file\/\d+-pagos?-detallad/.test(l.href) && !/consolidad/.test(l.href))
       .map((l) => ({ url: l.href.split("?")[0], id: Number(l.href.match(/\/file\/(\d+)-/)![1]) }));
-    // El portal publica el mismo archivo dos veces (xlsx liviano y una copia más pesada);
-    // se usa el de id más bajo y, si no abre como xlsx, el siguiente.
+    // El portal publica el mismo archivo dos o tres veces (el xlsx y copias en otro formato);
+    // se intentan en orden de id y el sincronizador se queda con el primero que abra como xlsx.
     const unicos = [...new Map(candidatos.map((c) => [c.id, c])).values()].sort((a, b) => a.id - b.id);
+    if (unicos.length === 0) { avisos.push(`${MESES[mes - 1]} ${anio}: la página del mes no tiene archivo de pagos detallados`); continue; }
     for (const c of unicos) {
-      out.push({ anio, mes: m.mes, phocaId: c.id, url: c.url, titulo: `Pagos Detallados Suplidores y Contratistas ${MESES[m.mes - 1]} ${anio}` });
+      archivos.push({ anio, mes, phocaId: c.id, url: c.url, titulo: `Pagos Detallados Suplidores y Contratistas ${MESES[mes - 1]} ${anio}` });
     }
   }
-  return out;
+  return { archivos, avisos };
 }
 
 /** Descarga el archivo enviando el formulario de Phoca con su token. */
 export async function descargar(a: ArchivoTN): Promise<Buffer> {
-  const r1 = await fetch(a.url, { headers: { "User-Agent": UA } });
-  if (!r1.ok) throw new Error(`Tesorería respondió ${r1.status} en ${a.url}`);
+  const r1 = await pedir(a.url, {}, ESPERA_PAGINA_MS);
+  if (!r1.ok) throw new Error(`la Tesorería respondió ${r1.status} en ${a.url}`);
   const cookie = r1.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
   const pagina = await r1.text();
   const token = pagina.match(/name="([0-9a-f]{32})" value="1"/)?.[1];
-  if (!token) throw new Error(`No se encontró el token de descarga en ${a.url}`);
+  if (!token) throw new Error(`no se encontró el token de descarga en ${a.url} (¿cambió el formulario del portal?)`);
   const cuerpo = new URLSearchParams({ submit: "Descarga", license_agree: "1", download: String(a.phocaId), [token]: "1" });
-  const r2 = await fetch(a.url, {
+  const r2 = await pedir(a.url, {
     method: "POST",
-    headers: { "User-Agent": UA, Cookie: cookie, "Content-Type": "application/x-www-form-urlencoded", Referer: a.url },
+    headers: { Cookie: cookie, "Content-Type": "application/x-www-form-urlencoded", Referer: a.url },
     body: cuerpo,
-  });
-  if (!r2.ok) throw new Error(`Descarga falló (${r2.status}) en ${a.url}`);
+  }, ESPERA_DESCARGA_MS);
+  if (!r2.ok) throw new Error(`la descarga falló (${r2.status}) en ${a.url}`);
   const buf = Buffer.from(await r2.arrayBuffer());
-  if (buf.subarray(0, 2).toString() !== "PK") throw new Error(`El archivo ${a.phocaId} no es un .xlsx`);
+  if (buf.subarray(0, 2).toString() !== "PK") {
+    throw new Error(`el archivo ${a.phocaId} no es un .xlsx (${r2.headers.get("content-type") ?? "sin tipo"})`);
+  }
   return buf;
 }

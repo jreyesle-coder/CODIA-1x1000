@@ -2,9 +2,9 @@
  * Dónde viven los datos.
  * - Con SUPABASE_URL + SUPABASE_ANON_KEY + CRON_SECRET: Supabase. Lee con la clave pública (las tablas
  *   son de lectura abierta: datos públicos de la Tesorería) y escribe solo a través de funciones
- *   que exigen CRON_SECRET.
+ *   que exigen CRON_SECRET (ver supabase/migraciones/002_acceso.sql y 003_candado_mes.sql).
  * - Sin esas variables, en la PC: un archivo local (datos/almacen.json) para probar.
- *   En un servidor (Vercel) la falta de variables es un error y se muestra como tal.
+ *   En un servidor (Vercel) la falta de cualquiera de las tres es un error y se muestra como tal.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
@@ -30,10 +30,13 @@ export interface ArchivoGuardado {
   descargado_en: string;
 }
 
+/** ok = hubo meses nuevos · sin_cambios = nada nuevo · parcial = avisos o meses pendientes · error */
+export type EstadoSync = "ok" | "sin_cambios" | "parcial" | "error";
+
 export interface Sincronizacion {
   inicio: string;
   fin: string | null;
-  estado: "ok" | "sin_cambios" | "error";
+  estado: EstadoSync;
   detalle: string | null;
 }
 
@@ -47,6 +50,9 @@ export interface Almacen {
 }
 
 // ---------- Supabase ----------
+const COLUMNAS = "anio,mes,moneda,fecha,institucion,unidad_ejecutora,libramiento,proveedor,concepto,monto_bruto,retencion,monto_neto,cesion";
+const PAGINA = 1000;
+
 function supabase(url: string, llave: string, secreto: string): Almacen {
   const sb: SupabaseClient = createClient(url, llave, { auth: { persistSession: false } });
   const ok = <T>(r: { data: T | null; error: { message: string } | null }) => {
@@ -63,14 +69,12 @@ function supabase(url: string, llave: string, secreto: string): Almacen {
     },
     async pagos(anio) {
       const out: PagoObra[] = [];
-      for (let desde = 0; ; desde += 1000) {
-        const lote = ok<PagoObra[]>(
-          await sb.from("pagos_obras")
-            .select("anio,mes,moneda,fecha,institucion,unidad_ejecutora,libramiento,proveedor,concepto,monto_bruto,retencion,monto_neto,cesion")
-            .eq("anio", anio).order("id").range(desde, desde + 999),
-        );
+      for (let desde = 0; ; desde += PAGINA) {
+        const r = await sb.from("pagos_obras").select(COLUMNAS, { count: "exact" }).eq("anio", anio).order("id").range(desde, desde + PAGINA - 1);
+        const lote = ok<PagoObra[]>(r);
         out.push(...lote.map((p) => ({ ...p, monto_bruto: Number(p.monto_bruto), retencion: Number(p.retencion), monto_neto: Number(p.monto_neto) })));
-        if (lote.length < 1000) return out;
+        // Se sigue hasta cubrir el total real, sin suponer el tamaño de página del servidor.
+        if (lote.length === 0 || out.length >= (r.count ?? 0)) return out;
       }
     },
     async registrarSync(s) {
@@ -122,6 +126,6 @@ export function almacen(): Almacen {
   const faltan = variablesFaltantes();
   if (faltan.length === 0) return supabase(process.env.SUPABASE_URL!, process.env.SUPABASE_ANON_KEY!, process.env.CRON_SECRET!);
   // En un servidor nunca se cae en silencio al archivo local: se exige la configuración.
-  if (process.env.VERCEL || process.env.GITHUB_ACTIONS || process.env.NODE_ENV === "production") throw new ErrorConfiguracion(faltan);
+  if (process.env.VERCEL || process.env.NODE_ENV === "production") throw new ErrorConfiguracion(faltan);
   return local();
 }
