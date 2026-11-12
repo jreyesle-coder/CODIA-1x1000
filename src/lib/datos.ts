@@ -11,6 +11,8 @@ export interface Datos {
   /** Horas desde la última revisión (0 si no hay ninguna). */
   horasSinRevisar: number;
   rd: PagoObra[];
+  /** RD$ del año anterior, solo cuando el año elegido tiene menos de 6 meses (para «últimos 3 meses» y su comparación). */
+  rdAnterior: PagoObra[];
   divisas: PagoObra[];
 }
 
@@ -30,6 +32,9 @@ export async function cargar(anioPedido?: string): Promise<Datos | SinConfigurar
   const anios = [...new Set(archivos.map((a) => a.anio))].sort((a, b) => b - a);
   const anio = anios.includes(Number(anioPedido)) ? Number(anioPedido) : (anios[0] ?? new Date().getFullYear());
   const pagos = await alm.pagos(anio);
+  const esRd = (p: PagoObra) => p.moneda === "RD";
+  const mesesRd = new Set(pagos.filter(esRd).map((p) => p.mes)).size;
+  const rdAnterior = mesesRd < 6 && anios.includes(anio - 1) ? (await alm.pagos(anio - 1)).filter(esRd) : [];
   return {
     faltan: null,
     anio,
@@ -37,8 +42,9 @@ export async function cargar(anioPedido?: string): Promise<Datos | SinConfigurar
     archivos: archivos.filter((a) => a.anio === anio),
     ultimaSync,
     horasSinRevisar: ultimaSync ? (Date.now() - new Date(ultimaSync.fin ?? ultimaSync.inicio).getTime()) / 36e5 : 0,
-    rd: pagos.filter((p) => p.moneda === "RD"),
-    divisas: pagos.filter((p) => p.moneda !== "RD"),
+    rd: pagos.filter(esRd),
+    rdAnterior,
+    divisas: pagos.filter((p) => !esRd(p)),
   };
 }
 

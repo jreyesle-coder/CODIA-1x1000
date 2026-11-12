@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { cargar, rd, num, pct, fechaHora } from "@/lib/datos";
-import { MESES_CORTOS, MESES_LARGOS, TASA, nombreCorto, porInstitucion, resumen, ultimosMeses } from "@/lib/calculo";
+import { MESES_CORTOS, MESES_LARGOS, TASA, etiquetaPeriodos, nombreCorto, periodos, porInstitucion, reciente, resumen } from "@/lib/calculo";
 import { GraficoBarras } from "@/components/grafico-barras";
 import { Tarjeta, Seccion, EstadoSync, SinDatos, BotonActualizar, AvisoSync, FaltaConfiguracion } from "@/components/ui";
 
@@ -16,14 +16,11 @@ export default async function Tablero({ searchParams }: PageProps<"/">) {
   const filas = resumen(d.rd);
   const total = filas.at(-1)!;
   const meses = filas.filter((f) => f.tipo === "mes");
-  const ult = ultimosMeses(d.rd, 3);
-  const ant = ultimosMeses(d.rd, 6).filter((m) => !ult.includes(m));
-  const rdUlt = d.rd.filter((p) => ult.includes(p.mes));
-  const x1000Ult = rdUlt.reduce((s, p) => s + p.monto_bruto, 0) * TASA;
-  const x1000Ant = d.rd.filter((p) => ant.includes(p.mes)).reduce((s, p) => s + p.monto_bruto, 0) * TASA;
-  const rango = (ms: number[]) => `${MESES_LARGOS[ms[0] - 1].toLowerCase()}–${MESES_LARGOS[ms.at(-1)! - 1].toLowerCase()}`;
-  const instUlt = porInstitucion(rdUlt);
-  const top3 = instUlt.slice(0, 3);
+  // Todo se deriva de los meses guardados: cuando llega un mes nuevo, títulos, totales y gráficos cambian solos.
+  const anioTexto = etiquetaPeriodos(periodos(d.rd));
+  const rec = reciente([...d.rdAnterior, ...d.rd]); // a inicios de año incluye los últimos meses del anterior
+  const cambio = rec.x1000Anterior ? rec.x1000 / rec.x1000Anterior - 1 : null;
+  const top3 = porInstitucion(rec.pagos).slice(0, 3);
   const sumaTop3 = top3.reduce((s, f) => s + f.x1000, 0);
   const instAnio = porInstitucion(d.rd);
   const numsMes = meses.map((m) => MESES_LARGOS.indexOf(m.etiqueta) + 1);
@@ -34,7 +31,7 @@ export default async function Tablero({ searchParams }: PageProps<"/">) {
         <div>
           <h1 className="text-2xl font-bold text-tinta">1x1000 teórico del CODIA · {d.anio}</h1>
           <p className="text-sm text-tinta-2">
-            Pagos de OBRAS en RD$ de la Tesorería Nacional, {rango(numsMes)} {d.anio}. Tasa {TASA} (Decreto 319-98).
+            Pagos de OBRAS en RD$ de la Tesorería Nacional, {anioTexto} {d.anio}. Tasa {TASA} (Decreto 319-98).
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -52,24 +49,25 @@ export default async function Tablero({ searchParams }: PageProps<"/">) {
       {sync === "1" && <AvisoSync estado={String(estado ?? "")} detalle={String(detalle ?? "")} />}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Tarjeta titulo={`1x1000 ${rango(numsMes)}`} valor={rd(total.x1000)} nota={`Sobre ${rd(total.bruto)} de monto bruto`} />
+        <Tarjeta titulo={`1x1000 ${anioTexto}`} valor={rd(total.x1000)} nota={`Sobre ${rd(total.bruto)} de monto bruto`} />
         <Tarjeta titulo="1x1000 depurado" valor={rd(total.x1000Depurado)} nota={`Sin ${rd(total.cesiones)} cedidos a Banreservas`} />
-        <Tarjeta titulo={`Últimos 3 meses (${rango(ult)})`} valor={rd(x1000Ult)}
-          nota={ant.length === 3 ? `${x1000Ult >= x1000Ant ? "+" : ""}${pct(x1000Ult / x1000Ant - 1)} frente a ${rango(ant)}` : undefined}
-          tono={ant.length === 3 ? (x1000Ult >= x1000Ant ? "bueno" : "malo") : undefined} />
+        <Tarjeta titulo={`${rec.titulo} (${rec.etiqueta})`} valor={rd(rec.x1000)}
+          nota={cambio === null ? undefined : `${cambio >= 0 ? "+" : ""}${pct(cambio)} frente a ${rec.etiquetaAnterior}`}
+          tono={cambio === null ? undefined : cambio >= 0 ? "bueno" : "malo"} />
         <Tarjeta titulo="Pagos de obra" valor={num(total.pagos)} nota={`Retención agregada: ${pct(total.pctRetencion)} del bruto`} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Seccion titulo="1x1000 por mes" subtitulo={`Total ${rango(numsMes)}: ${rd(total.x1000)}`}>
+        <Seccion titulo="1x1000 por mes" subtitulo={`Total ${anioTexto}: ${rd(total.x1000)}`}>
           <GraficoBarras series={[{ nombre: "1x1000", color: "var(--serie-1)" }]}
             grupos={meses.map((m) => ({ etiqueta: MESES_CORTOS[MESES_LARGOS.indexOf(m.etiqueta)], valores: [m.x1000] }))} />
         </Seccion>
-        <Seccion titulo={`Las 3 instituciones con más 1x1000 · ${rango(ult)}`}
-          subtitulo={`Juntas suman ${rd(sumaTop3)}, el ${pct(sumaTop3 / x1000Ult)} del trimestre (${rd(x1000Ult)})`}>
+        <Seccion titulo={`Las 3 instituciones con más 1x1000 · ${rec.etiqueta}`}
+          subtitulo={`Juntas suman ${rd(sumaTop3)}, el ${pct(rec.x1000 ? sumaTop3 / rec.x1000 : 0)} del ${rec.ult.length === 3 ? "trimestre" : "período"} (${rd(rec.x1000)})`}>
+          {/* porMes va por número de mes: en una ventana de 3 meses no se repite aunque cruce de año */}
           <GraficoBarras etiquetaLarga
-            series={ult.map((m, i) => ({ nombre: MESES_LARGOS[m - 1], color: `var(--serie-${i + 1})` }))}
-            grupos={top3.map((f) => ({ etiqueta: nombreCorto(f.institucion), valores: ult.map((m) => f.porMes[m] ?? 0), total: `Total ${rd(f.x1000)}` }))} />
+            series={rec.ult.map((p, i) => ({ nombre: MESES_LARGOS[p.mes - 1] + (rec.conAnio ? ` ${p.anio}` : ""), color: `var(--serie-${i + 1})` }))}
+            grupos={top3.map((f) => ({ etiqueta: nombreCorto(f.institucion), valores: rec.ult.map((p) => f.porMes[p.mes] ?? 0), total: `Total ${rd(f.x1000)}` }))} />
         </Seccion>
       </div>
 

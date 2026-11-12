@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { porInstitucion, resumen, ultimosMeses } from "./calculo";
+import { etiquetaPeriodos, periodos, porInstitucion, reciente, resumen, ultimosMeses } from "./calculo";
 import { esCesion, type PagoObra } from "./lector";
 
 const pago = (mes: number, institucion: string, bruto: number, proveedor = "Constructora X, SRL"): PagoObra => ({
@@ -42,5 +42,57 @@ describe("resumen", () => {
   });
   it("toma los últimos meses con datos", () => {
     expect(ultimosMeses(datos, 2)).toEqual([2, 4]);
+  });
+});
+
+describe("meses recientes (lo que cambia cuando llega un mes nuevo)", () => {
+  // Un pago de RD$1,000,000 por mes (1x1000 = RD$1,000), salvo que se indique otro monto.
+  const mes = (anio: number, m: number, bruto = 1_000_000): PagoObra => ({ ...pago(m, "MOPC", bruto), anio });
+  const anio = (a: number, hasta: number) => Array.from({ length: hasta }, (_, i) => mes(a, i + 1));
+
+  it("enero–septiembre: últimos 3 = julio–septiembre, frente a abril–junio", () => {
+    const r = reciente(anio(2026, 9));
+    expect(r.titulo).toBe("Últimos 3 meses");
+    expect(r.etiqueta).toBe("julio–septiembre");
+    expect(r.etiquetaAnterior).toBe("abril–junio");
+    expect(r.x1000).toBeCloseTo(3_000);
+  });
+
+  it("al llegar octubre todo se corre un mes: agosto–octubre frente a mayo–julio", () => {
+    const datos = [...anio(2026, 9), mes(2026, 10, 2_000_000)];
+    const r = reciente(datos);
+    expect(r.etiqueta).toBe("agosto–octubre");
+    expect(r.etiquetaAnterior).toBe("mayo–julio");
+    expect(r.x1000).toBeCloseTo(4_000);
+    expect(r.x1000Anterior).toBeCloseTo(3_000);
+    expect(etiquetaPeriodos(periodos(datos))).toBe("enero–octubre");
+    const filas = resumen(datos);
+    expect(filas.filter((f) => f.tipo === "mes")).toHaveLength(10);
+    expect(filas.at(-1)!.x1000).toBeCloseTo(11_000);
+  });
+
+  it("cambio de año: con enero 2027, los últimos 3 incluyen noviembre y diciembre 2026", () => {
+    const r = reciente([...anio(2026, 12), mes(2027, 1)]);
+    expect(r.titulo).toBe("Últimos 3 meses");
+    expect(r.etiqueta).toBe("noviembre 2026–enero 2027");
+    expect(r.etiquetaAnterior).toBe("agosto 2026–octubre 2026");
+    expect(r.pagos.map((p) => `${p.anio}-${p.mes}`)).toEqual(["2026-11", "2026-12", "2027-1"]);
+    expect(r.conAnio).toBe(true);
+  });
+
+  it("un solo mes en total: «Último mes», sin comparación", () => {
+    const r = reciente([mes(2027, 1)]);
+    expect(r.titulo).toBe("Último mes");
+    expect(r.etiqueta).toBe("enero");
+    expect(r.x1000Anterior).toBeNull();
+    expect(r.etiquetaAnterior).toBe("");
+    expect(etiquetaPeriodos(periodos([mes(2027, 1)]))).toBe("enero");
+  });
+
+  it("dos meses en total: «Últimos 2 meses», sin comparación", () => {
+    const r = reciente([mes(2027, 1), mes(2027, 2)]);
+    expect(r.titulo).toBe("Últimos 2 meses");
+    expect(r.etiqueta).toBe("enero–febrero");
+    expect(r.x1000Anterior).toBeNull();
   });
 });

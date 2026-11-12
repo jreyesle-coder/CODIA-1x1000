@@ -78,6 +78,70 @@ export function ultimosMeses(rd: PagoObra[], n = 3): number[] {
   return mesesConDatos(rd).slice(-n);
 }
 
+export interface Periodo { anio: number; mes: number }
+
+const clavePeriodo = (p: Periodo) => p.anio * 100 + p.mes;
+
+/** Meses con datos (año y mes), en orden, aunque abarquen varios años. */
+export function periodos(pagos: PagoObra[]): Periodo[] {
+  const m = new Map<number, Periodo>();
+  for (const p of pagos) m.set(clavePeriodo(p), { anio: p.anio, mes: p.mes });
+  return [...m.entries()].sort((a, b) => a[0] - b[0]).map(([, p]) => p);
+}
+
+/** «octubre», «agosto–octubre» o, si cruza de año o se pide, «noviembre 2026–enero 2027». */
+export function etiquetaPeriodos(ps: Periodo[], conAnio = false): string {
+  if (!ps.length) return "";
+  const a = ps[0], b = ps.at(-1)!;
+  const anio = conAnio || a.anio !== b.anio;
+  const nombre = (p: Periodo) => MESES_LARGOS[p.mes - 1].toLowerCase() + (anio ? ` ${p.anio}` : "");
+  return ps.length === 1 ? nombre(a) : `${nombre(a)}–${nombre(b)}`;
+}
+
+export interface Reciente {
+  /** «Últimos 3 meses», «Últimos 2 meses» o «Último mes», según los datos que haya. */
+  titulo: string;
+  ult: Periodo[];
+  /** Los mismos meses inmediatamente anteriores; vacío si no hay suficientes para comparar. */
+  ant: Periodo[];
+  pagos: PagoObra[];
+  x1000: number;
+  x1000Anterior: number | null;
+  etiqueta: string;
+  etiquetaAnterior: string;
+  /** Los meses recientes o los anteriores abarcan más de un año. */
+  conAnio: boolean;
+}
+
+/**
+ * Los últimos n meses con datos y los n anteriores para comparar. Recibe los pagos de uno o
+ * varios años: a inicios de año, «los últimos 3 meses» incluyen noviembre y diciembre del anterior.
+ */
+export function reciente(pagos: PagoObra[], n = 3, tasa = TASA): Reciente {
+  const ps = periodos(pagos);
+  const ult = ps.slice(-n);
+  const ant = ps.slice(-2 * n, -n);
+  const comparar = ant.length === ult.length && ult.length > 0;
+  const en = (lista: Periodo[]) => new Set(lista.map(clavePeriodo));
+  const kUlt = en(ult), kAnt = en(ant);
+  const rec = pagos.filter((p) => kUlt.has(clavePeriodo(p)));
+  const x1000 = rec.reduce((s, p) => s + p.monto_bruto, 0) * tasa;
+  const x1000Anterior = comparar ? pagos.filter((p) => kAnt.has(clavePeriodo(p))).reduce((s, p) => s + p.monto_bruto, 0) * tasa : null;
+  const anios = new Set([...ult, ...(comparar ? ant : [])].map((p) => p.anio));
+  const conAnio = anios.size > 1;
+  return {
+    titulo: ult.length === 1 ? "Último mes" : `Últimos ${ult.length} meses`,
+    ult,
+    ant: comparar ? ant : [],
+    pagos: rec,
+    x1000,
+    x1000Anterior,
+    etiqueta: etiquetaPeriodos(ult, conAnio),
+    etiquetaAnterior: comparar ? etiquetaPeriodos(ant, conAnio) : "",
+    conAnio,
+  };
+}
+
 const SIGLAS: [RegExp, string][] = [
   [/OBRAS PUBLICAS/, "MOPC"], [/MINISTERIO DE EDUCACION$/, "MINERD"], [/VIVIENDA/, "MIVHED"],
   [/AGUAS POTABLES/, "INAPA"], [/ACUEDUCTO Y ALCANTARILLADO DE SANTO DOMINGO/, "CAASD"],
